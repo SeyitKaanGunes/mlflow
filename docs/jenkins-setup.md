@@ -1,13 +1,13 @@
 # Jenkins Pipeline Integration
 
-This repository ships with a declarative Jenkins pipeline (`Jenkinsfile`) that automates running the AutoGluon + MLflow demo. The structure mirrors the ["Jenkins Tutorial"](https://www.datacamp.com/tutorial/jenkins-tutorial) from DataCamp, with stages adapted to this project.
+This repository ships with a declarative Jenkins pipeline (`Jenkinsfile`) that automates running the scikit-learn + MLflow demo. The structure mirrors the ["Jenkins Tutorial"](https://www.datacamp.com/tutorial/jenkins-tutorial) from DataCamp, with stages adapted to this project.
 
 ## Prerequisites
 
 1. A Jenkins controller (LTS 2.426+ recommended) running on Windows. The provided Jenkinsfile assumes the agent can execute Windows `bat` steps.
-2. Python 3.10+ installed on the Jenkins agent together with the Windows `py` launcher (default option). The Jenkinsfile invokes `py -3 -m venv ...`, so the launcher must be on `PATH` for the service account.
+2. A Python 3.x installation on the Jenkins agent together with the Windows `py` launcher (default option). The Jenkinsfile invokes `py -3 -m venv ...`, so the launcher must be on `PATH` for the service account.
 3. A Jenkins credential with permission to clone this repository (for private repos).
-4. Sufficient disk space (~6 GB) and network access so AutoGluon can download its model backbones during the first run.
+4. Sufficient disk space (~1 GB) and network access so Python packages can be downloaded during the first run.
 
 ## Jenkins Job Setup
 

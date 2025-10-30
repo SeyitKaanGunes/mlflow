@@ -1,16 +1,16 @@
 """
-AutoGluon multimodal demo with MLflow tracking.
+MLflow tracking demo built with a scikit-learn pipeline.
 
-This script synthesizes a small dataset that mixes numerical, categorical,
-and free-form text features. It then trains an AutoGluon MultiModalPredictor
-on the data, evaluates the model, and records the entire experiment in MLflow,
-including metrics, parameters, artefacts, and the trained model directory.
+The script synthesises a small dataset that combines numerical, categorical,
+and free-form text features. It trains a logistic-regression pipeline that
+includes TF-IDF vectorisation for the text column and one-hot encoding for
+categorical fields, evaluates the model, and logs the full experiment to MLflow.
 
 Example:
-    python main.py --samples 400 --time-limit 120 --experiment-name DemoRun
+    python main.py --samples 400 --experiment-name DemoRun
 
 Requirements:
-    pip install autogluon.multimodal mlflow scikit-learn matplotlib pandas numpy
+    pip install mlflow scikit-learn matplotlib pandas numpy
 """
 
 from __future__ import annotations
@@ -19,8 +19,7 @@ import argparse
 import json
 import uuid
 from pathlib import Path
-from typing import Dict, Iterable, Tuple
-import warnings
+from typing import Dict, Iterable
 
 import matplotlib
 
@@ -31,20 +30,35 @@ import matplotlib.pyplot as plt
 import mlflow
 import numpy as np
 import pandas as pd
-from autogluon.multimodal import MultiModalPredictor
-from sklearn.metrics import classification_report, confusion_matrix
+from joblib import dump
+from sklearn.compose import ColumnTransformer
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import (
+    accuracy_score,
+    classification_report,
+    confusion_matrix,
+    f1_score,
+    precision_score,
+    recall_score,
+)
 from sklearn.model_selection import train_test_split
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 
 RANDOM_STATE_DEFAULT = 42
 LABEL_COLUMN = "churn"
+NUMERIC_FEATURES = ["age", "tenure_months", "monthly_spend"]
+CATEGORICAL_FEATURES = ["region", "customer_segment", "favorite_product"]
+TEXT_FEATURE = "interaction_summary"
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Train an AutoGluon multimodal model on a synthetic dataset and "
-            "log the full run into MLflow."
+            "Train a scikit-learn logistic-regression pipeline on a synthetic "
+            "multimodal dataset and log the full run into MLflow."
         )
     )
     parser.add_argument(
@@ -60,21 +74,9 @@ def parse_args() -> argparse.Namespace:
         help="Fraction of samples reserved for evaluation (0, 1).",
     )
     parser.add_argument(
-        "--time-limit",
-        type=int,
-        default=120,
-        help="Optional time limit (in seconds) passed to AutoGluon.",
-    )
-    parser.add_argument(
-        "--presets",
-        type=str,
-        default="default",
-        help="AutoGluon presets configuration string (e.g. default, multimodal_fusion, multilingual).",
-    )
-    parser.add_argument(
         "--experiment-name",
         type=str,
-        default="autogluon-multimodal-demo",
+        default="mlflow-sklearn-demo",
         help="MLflow experiment name.",
     )
     parser.add_argument(
@@ -102,13 +104,16 @@ def parse_args() -> argparse.Namespace:
         help="Directory used to stash figures and reports before MLflow logging.",
     )
     parser.add_argument(
-        "--text-backbone",
-        type=str,
-        default="sentence-transformers/all-MiniLM-L6-v2",
-        help=(
-            "HuggingFace checkpoint leveraged for text features by AutoGluon. "
-            "Overrides the default backbone."
-        ),
+        "--tfidf-max-features",
+        type=int,
+        default=500,
+        help="Maximum number of n-gram features extracted by the TF-IDF vectoriser.",
+    )
+    parser.add_argument(
+        "--logreg-c",
+        type=float,
+        default=1.0,
+        help="Inverse regularisation strength passed to LogisticRegression (higher is weaker regularisation).",
     )
     return parser.parse_args()
 
@@ -137,7 +142,7 @@ def synthesize_customer_data(
     segment = rng.choice(customer_segments, size=num_samples, replace=True)
     product = rng.choice(preferred_products, size=num_samples, replace=True)
 
-    # Base propensity calculation encourages AutoGluon to pick up multimodal signals.
+    # Base propensity calculation encourages the model to pick up multimodal signals.
     spend_score = (110 - monthly_spend) / 45
     age_score = (35 - age) / 20
     tenure_penalty = (12 - tenure_months) / 18
@@ -178,7 +183,7 @@ def prepare_train_test_split(
     df: pd.DataFrame,
     test_size: float,
     random_state: int,
-) -> Tuple[pd.DataFrame, pd.DataFrame]:
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     train_df, test_df = train_test_split(
         df,
         test_size=test_size,
@@ -188,77 +193,119 @@ def prepare_train_test_split(
     return train_df.reset_index(drop=True), test_df.reset_index(drop=True)
 
 
-PRESET_ALIAS_MAP = {
-    "medium_quality_faster_train": "default",  # legacy AutoGluon preset name
-}
-
-
-def normalize_presets(presets: str) -> str:
-    """Map legacy preset names to the current AutoGluon equivalents."""
-    return PRESET_ALIAS_MAP.get(presets, presets)
-
-
-def train_multimodal_model(
-    train_data: pd.DataFrame,
-    time_limit: int,
-    presets: str,
+def build_training_pipeline(
+    tfidf_max_features: int,
+    logreg_c: float,
     random_state: int,
-    text_backbone: str,
-) -> Tuple[MultiModalPredictor, Dict]:
-    predictor = MultiModalPredictor(
-        label=LABEL_COLUMN,
-        problem_type="binary",
-        eval_metric="accuracy",
+) -> Pipeline:
+    preprocessor = ColumnTransformer(
+        transformers=[
+            (
+                "numeric",
+                StandardScaler(with_mean=False),
+                NUMERIC_FEATURES,
+            ),
+            (
+                "categorical",
+                OneHotEncoder(handle_unknown="ignore"),
+                CATEGORICAL_FEATURES,
+            ),
+            (
+                "text",
+                TfidfVectorizer(
+                    max_features=tfidf_max_features,
+                    ngram_range=(1, 2),
+                    min_df=2,
+                ),
+                TEXT_FEATURE,
+            ),
+        ]
     )
 
-    sanitized_presets = normalize_presets(presets)
-    hyperparameters = {
-        "model.hf_text.checkpoint_name": text_backbone,
+    classifier = LogisticRegression(
+        C=logreg_c,
+        max_iter=1000,
+        random_state=random_state,
+        solver="liblinear",
+    )
+
+    return Pipeline(
+        steps=[
+            ("preprocessor", preprocessor),
+            ("classifier", classifier),
+        ]
+    )
+
+
+def train_model(
+    train_data: pd.DataFrame,
+    tfidf_max_features: int,
+    logreg_c: float,
+    random_state: int,
+) -> tuple[Pipeline, Dict]:
+    model = build_training_pipeline(
+        tfidf_max_features=tfidf_max_features,
+        logreg_c=logreg_c,
+        random_state=random_state,
+    )
+    features = train_data.drop(columns=[LABEL_COLUMN])
+    labels = train_data[LABEL_COLUMN]
+    model.fit(features, labels)
+
+    preprocessor: ColumnTransformer = model.named_steps["preprocessor"]
+    classifier: LogisticRegression = model.named_steps["classifier"]
+
+    summary = {
+        "classifier": "LogisticRegression",
+        "classifier_params": classifier.get_params(deep=False),
+        "numeric_features": NUMERIC_FEATURES,
+        "categorical_features": CATEGORICAL_FEATURES,
+        "text_feature": TEXT_FEATURE,
+        "tfidf_params": preprocessor.named_transformers_["text"].get_params(),
+    }
+    return model, summary
+
+
+def compute_evaluation_outputs(model: Pipeline, test_data: pd.DataFrame) -> Dict:
+    features = test_data.drop(columns=[LABEL_COLUMN])
+    labels = test_data[LABEL_COLUMN]
+
+    predictions = model.predict(features)
+    probabilities = model.predict_proba(features)
+
+    evaluation_metrics = {
+        "accuracy": accuracy_score(labels, predictions),
+        "precision_weighted": precision_score(
+            labels, predictions, average="weighted", zero_division=0
+        ),
+        "recall_weighted": recall_score(
+            labels, predictions, average="weighted", zero_division=0
+        ),
+        "f1_weighted": f1_score(
+            labels, predictions, average="weighted", zero_division=0
+        ),
     }
 
-    try:
-        predictor.fit(
-            train_data=train_data,
-            presets=sanitized_presets,
-            time_limit=time_limit,
-            seed=random_state,
-            hyperparameters=hyperparameters,
-        )
-    except ValueError as exc:
-        if "Unknown preset type" in str(exc):
-            raise ValueError(
-                f"AutoGluon does not recognize the preset '{presets}'. "
-                "Try one of the documented presets such as 'default', 'multimodal_fusion', or "
-                "'multilingual'. You can override the CLI flag with --presets."
-            ) from exc
-        raise
-
-    fit_summary = predictor.fit_summary()
-    if isinstance(fit_summary, dict):
-        fit_summary["custom_text_backbone"] = text_backbone
-        fit_summary["applied_hyperparameters"] = hyperparameters
-    return predictor, fit_summary
-
-
-def compute_evaluation_outputs(
-    predictor: MultiModalPredictor,
-    test_data: pd.DataFrame,
-) -> Dict:
-    evaluation_metrics = predictor.evaluate(test_data)
-    predictions = predictor.predict(test_data)
-    probabilities = predictor.predict_proba(test_data)
     report = classification_report(
-        test_data[LABEL_COLUMN], predictions, output_dict=True, zero_division=0
+        labels,
+        predictions,
+        output_dict=True,
+        zero_division=0,
     )
-    class_labels = (
-        predictor.class_labels if hasattr(predictor, "class_labels") else sorted(test_data[LABEL_COLUMN].unique())
+    class_labels = list(model.named_steps["classifier"].classes_)
+    conf_matrix = confusion_matrix(labels, predictions, labels=class_labels)
+
+    probabilities_df = pd.DataFrame(
+        probabilities,
+        columns=[f"proba_{cls}" for cls in class_labels],
     )
-    conf_matrix = confusion_matrix(test_data[LABEL_COLUMN], predictions, labels=class_labels)
+    probabilities_df.insert(0, "prediction", predictions)
+    probabilities_df.insert(0, LABEL_COLUMN, labels.reset_index(drop=True))
 
     return {
         "metrics": evaluation_metrics,
         "predictions": predictions,
-        "probabilities": probabilities,
+        "probabilities": probabilities_df,
         "classification_report": report,
         "confusion_matrix": conf_matrix,
         "class_labels": class_labels,
@@ -286,7 +333,7 @@ def flatten_metrics(nested: Dict, prefix: Iterable[str] | None = None) -> Dict[s
 def save_confusion_matrix_figure(
     matrix: np.ndarray,
     output_path: Path,
-    labels: Tuple[str, ...],
+    labels: tuple[str, ...],
 ) -> None:
     fig, ax = plt.subplots(figsize=(5, 4))
     cmap = plt.cm.Blues
@@ -326,8 +373,8 @@ def log_run_to_mlflow(
     args: argparse.Namespace,
     train_data: pd.DataFrame,
     test_data: pd.DataFrame,
-    predictor: MultiModalPredictor,
-    fit_summary: Dict,
+    model: Pipeline,
+    model_summary: Dict,
     evaluation_outputs: Dict,
     artifact_root: Path,
 ) -> None:
@@ -336,27 +383,29 @@ def log_run_to_mlflow(
 
     mlflow.set_experiment(args.experiment_name)
 
-    run_name = args.run_name or f"autogluon-multimodal-{uuid.uuid4().hex[:8]}"
+    run_name = args.run_name or f"logreg-{uuid.uuid4().hex[:8]}"
     with mlflow.start_run(run_name=run_name):
         mlflow.log_params(
             {
                 "samples": len(train_data) + len(test_data),
                 "test_size": args.test_size,
-                "time_limit": args.time_limit,
-                "presets": args.presets,
                 "random_state": args.random_state,
                 "label_column": LABEL_COLUMN,
-                "text_backbone": args.text_backbone,
+                "tfidf_max_features": args.tfidf_max_features,
+                "logreg_c": args.logreg_c,
             }
         )
 
         mlflow.log_metrics(evaluation_outputs["metrics"])
-        mlflow.log_metrics(flatten_metrics(evaluation_outputs["classification_report"], prefix=["cls_report"]))
+        mlflow.log_metrics(
+            flatten_metrics(
+                evaluation_outputs["classification_report"], prefix=["cls_report"]
+            )
+        )
 
         artifacts_dir = artifact_root
         artifacts_dir.mkdir(parents=True, exist_ok=True)
 
-        # Persist evaluation artefacts for later inspection.
         matrix_path = artifacts_dir / "confusion_matrix.png"
         save_confusion_matrix_figure(
             evaluation_outputs["confusion_matrix"],
@@ -365,39 +414,25 @@ def log_run_to_mlflow(
         )
         mlflow.log_artifact(str(matrix_path))
 
-        if hasattr(predictor, "leaderboard"):
-            try:
-                leaderboard_df = predictor.leaderboard(test_data, silent=True)
-            except TypeError:
-                leaderboard_df = predictor.leaderboard(silent=True)
-            leaderboard_path = dataframe_to_csv(
-                leaderboard_df, artifacts_dir / "leaderboard.csv"
-            )
-            mlflow.log_artifact(str(leaderboard_path))
-        else:
-            warnings.warn(
-                "Current AutoGluon MultiModalPredictor version does not expose a leaderboard; skipping leaderboard logging.",
-                stacklevel=2,
-            )
-
-        proba_path = dataframe_to_csv(
+        probabilities_path = dataframe_to_csv(
             evaluation_outputs["probabilities"],
             artifacts_dir / "predicted_probabilities.csv",
         )
-        mlflow.log_artifact(str(proba_path))
+        mlflow.log_artifact(str(probabilities_path))
 
         report_path = artifacts_dir / "classification_report.json"
-        report_path.write_text(json.dumps(evaluation_outputs["classification_report"], indent=2))
+        report_path.write_text(
+            json.dumps(evaluation_outputs["classification_report"], indent=2)
+        )
         mlflow.log_artifact(str(report_path))
 
-        summary_path = artifacts_dir / "fit_summary.json"
-        summary_path.write_text(json.dumps(fit_summary, indent=2, default=str))
+        summary_path = artifacts_dir / "model_summary.json"
+        summary_path.write_text(json.dumps(model_summary, indent=2, default=str))
         mlflow.log_artifact(str(summary_path))
 
-        # Save the trained model directory so the run is fully reproducible.
-        model_path = artifacts_dir / "multimodal_predictor"
-        predictor.save(str(model_path))
-        mlflow.log_artifacts(str(model_path))
+        model_path = artifacts_dir / "trained_pipeline.joblib"
+        dump(model, model_path)
+        mlflow.log_artifact(str(model_path))
 
 
 def main() -> None:
@@ -409,28 +444,26 @@ def main() -> None:
         synthetic_df, test_size=args.test_size, random_state=args.random_state
     )
 
-    predictor, fit_summary = train_multimodal_model(
+    model, model_summary = train_model(
         train_df,
-        time_limit=args.time_limit,
-        presets=args.presets,
+        tfidf_max_features=args.tfidf_max_features,
+        logreg_c=args.logreg_c,
         random_state=args.random_state,
-        text_backbone=args.text_backbone,
     )
 
-    evaluation_outputs = compute_evaluation_outputs(predictor, test_df)
+    evaluation_outputs = compute_evaluation_outputs(model, test_df)
 
     artifact_root = Path(args.artifact_dir)
     log_run_to_mlflow(
         args,
         train_df,
         test_df,
-        predictor,
-        fit_summary,
+        model,
+        model_summary,
         evaluation_outputs,
         artifact_root=artifact_root,
     )
 
-    # Surface key results to the console for convenient inspection.
     print("Evaluation metrics:", json.dumps(evaluation_outputs["metrics"], indent=2))
     print(f"Artifacts stored under: {artifact_root.resolve()}")
 
