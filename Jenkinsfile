@@ -1,10 +1,5 @@
 pipeline {
-    agent {
-        docker {
-            image 'python:3.10-slim'
-            args '-u root:root'
-        }
-    }
+    agent any
 
     options {
         timestamps()
@@ -23,23 +18,11 @@ pipeline {
             }
         }
 
-        stage('System Packages') {
-            steps {
-                sh '''
-                  set -e
-                  apt-get update
-                  apt-get install -y --no-install-recommends build-essential git libglib2.0-0 libgl1-mesa-glx
-                  rm -rf /var/lib/apt/lists/*
-                '''
-            }
-        }
-
         stage('Python Dependencies') {
             steps {
-                sh '''
-                  set -e
+                bat '''
                   python -m venv .venv
-                  . .venv/bin/activate
+                  call .venv\\Scripts\\activate
                   python -m pip install --upgrade pip
                   pip install -r requirements.txt
                 '''
@@ -48,9 +31,8 @@ pipeline {
 
         stage('Train Model') {
             steps {
-                sh '''
-                  set -e
-                  . .venv/bin/activate
+                bat '''
+                  call .venv\\Scripts\\activate
                   python main.py --samples 200 --time-limit 60 --experiment-name JenkinsDemo
                 '''
             }
@@ -63,7 +45,7 @@ pipeline {
             archiveArtifacts artifacts: 'mlruns/**/*', fingerprint: true, allowEmptyArchive: true
         }
         always {
-            sh 'rm -rf .venv'
+            bat 'if exist .venv rmdir /S /Q .venv'
         }
     }
 }

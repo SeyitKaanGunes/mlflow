@@ -4,9 +4,10 @@ This repository ships with a declarative Jenkins pipeline (`Jenkinsfile`) that a
 
 ## Prerequisites
 
-1. A Jenkins controller (LTS 2.426+ recommended) with Docker installed on the build agent. The pipeline executes inside the lightweight `python:3.10-slim` container, so no Python needs to be pre-installed on the host.
-2. A Jenkins credential with permission to clone this repository (for private repos).
-3. Sufficient disk space (~6 GB) and network access so AutoGluon can download its model backbones during the first run.
+1. A Jenkins controller (LTS 2.426+ recommended) running on Windows. The provided Jenkinsfile assumes the agent can execute Windows `bat` steps.
+2. Python 3.10+ installed on the Jenkins agent and added to `PATH` so the `python` command is available (the pipeline creates a virtual environment on each run).
+3. A Jenkins credential with permission to clone this repository (for private repos).
+4. Sufficient disk space (~6 GB) and network access so AutoGluon can download its model backbones during the first run.
 
 ## Jenkins Job Setup
 
@@ -19,9 +20,8 @@ This repository ships with a declarative Jenkins pipeline (`Jenkinsfile`) that a
    - Ensure the `Script Path` remains `Jenkinsfile`.
 3. **Apply and build**  
    - Save the configuration and trigger **Build Now**. Jenkins will:  
-     - spin up the Docker agent defined in the Jenkinsfile,  
-     - install system-level dependencies required by AutoGluon and Matplotlib,  
-     - create a virtual environment, install Python packages from `requirements.txt`,  
+     - check out the repository,  
+     - create a Python virtual environment and install packages from `requirements.txt`,  
      - run `main.py`, logging metrics and artefacts to MLflow.
 
 ## MLflow Outputs
@@ -32,7 +32,7 @@ This repository ships with a declarative Jenkins pipeline (`Jenkinsfile`) that a
 ## Customisation Tips
 
 - **Experiment parameters** — edit the `python main.py ...` line inside the `Train Model` stage to tweak sample count, runtime, or MLflow experiment names used during CI runs.
-- **GPU / larger instances** — swap the Docker image with one that includes CUDA, or remove the Docker block entirely if you want to target a dedicated machine label.
+- **GPU / larger instances** - label the Jenkins agent that has the required hardware and update the job to target that label.
 - **Parallel agents** — wrap the stages in `when { branch "main" }` or similar if you only want the ML pipeline on selected branches, following the conditional examples in the DataCamp tutorial.
 
 After the job succeeds you can extend the pipeline with additional stages (testing, model evaluation, deployment) reusing the skeleton provided in the tutorial and this Jenkinsfile.
