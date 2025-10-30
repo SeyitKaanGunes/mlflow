@@ -5,7 +5,7 @@ This repository ships with a declarative Jenkins pipeline (`Jenkinsfile`) that a
 ## Prerequisites
 
 1. A Jenkins controller (LTS 2.426+ recommended) running on Windows. The provided Jenkinsfile assumes the agent can execute Windows `bat` steps.
-2. Python 3.10+ installed on the Jenkins agent and added to `PATH` so the `python` command is available (the pipeline creates a virtual environment on each run).
+2. Python 3.10+ installed on the Jenkins agent together with the Windows `py` launcher (default option). The Jenkinsfile invokes `py -3 -m venv ...`, so the launcher must be on `PATH` for the service account.
 3. A Jenkins credential with permission to clone this repository (for private repos).
 4. Sufficient disk space (~6 GB) and network access so AutoGluon can download its model backbones during the first run.
 
