@@ -33,7 +33,7 @@ pipeline {
             steps {
                 bat '''
                   call .venv\\Scripts\\activate
-                  python main.py --samples 200 --time-limit 60 --experiment-name JenkinsDemo
+                  python main.py --samples 200 --experiment-name JenkinsDemo
                 '''
             }
         }
