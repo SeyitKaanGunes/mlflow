@@ -1,0 +1,7 @@
+AutogluonModels/
+autogluon_artifacts/
+artifacts/
+mlruns/
+temp_artifacts/
+pycache/
+*.log
