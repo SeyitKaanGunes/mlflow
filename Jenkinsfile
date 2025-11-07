@@ -13,9 +13,13 @@ pipeline {
 
         // Git & DVC ayarları
         GIT_TARGET_BRANCH   = 'main'
+
+        // Local DVC remote
         DVC_REMOTE_NAME     = 'local-storage'
-        // Local DVC cache klasörü (Jenkins agent’ın eriştiği yerel disk)
         DVC_REMOTE_PATH     = 'C:\\dvc-storage'
+
+        // GitHub repo yolun: owner/repo
+        GIT_REPO_PATH       = 'SeyitKaanGunes/mlflow'
     }
 
     stages {
@@ -34,7 +38,7 @@ pipeline {
                   if exist requirements.txt (
                     python -m pip install -r requirements.txt
                   )
-                  rem DVC'yi venv'e kesin kur (PATH derdi olmasın)
+                  rem DVC'yi venv'e kur (PATH derdi olmasın)
                   python -m pip install dvc
                 '''
             }
@@ -58,33 +62,30 @@ pipeline {
                       call .venv\\Scripts\\activate
                       setlocal EnableDelayedExpansion
 
-                      rem --- Hazırlık ---
-                      if not exist "%DVC_REMOTE_PATH%" mkdir "%DVC_REMOTE_PATH%"
+                      echo [Publish] Git user set
                       git config user.email "jenkins@local"
                       git config user.name  "Jenkins CI"
 
-                      for /f %%i in ('git remote get-url origin') do set "REMOTE_URL=%%i"
-                      if not defined REMOTE_URL (
-                        echo [Publish] Unable to determine git remote URL.
-                        exit /b 1
-                      )
-
-                      rem --- DVC add (varsa ekle) ---
+                      rem --- DVC add: artifacts & mlruns varsa ekle ---
                       for %%D in (artifacts mlruns) do (
                         if exist "%%D" (
+                          echo [Publish] dvc add %%D
                           py -m dvc add "%%D"
                         ) else (
                           echo [Publish] Skipping %%D because it does not exist.
                         )
                       )
 
-                      rem --- Git commit ---
+                      rem --- Git commit hazırlığı ---
                       if exist artifacts.dvc git add artifacts.dvc
                       if exist mlruns.dvc    git add mlruns.dvc
                       if exist .gitignore    git add .gitignore
+                      if exist Jenkinsfile   git add Jenkinsfile
+                      if exist requirements.txt git add requirements.txt
 
                       git diff --cached --quiet
                       if errorlevel 1 (
+                        echo [Publish] Git commit
                         git commit -m "chore: update tracked data via Jenkins"
                         set "SHOULD_PUSH=1"
                       ) else (
@@ -92,21 +93,20 @@ pipeline {
                         set "SHOULD_PUSH=0"
                       )
 
-                      rem --- DVC remote: local storage ---
+                      rem --- DVC remote (local) ---
+                      echo [Publish] Configure DVC remote %DVC_REMOTE_NAME% -> %DVC_REMOTE_PATH%
                       py -m dvc remote remove %DVC_REMOTE_NAME% 2>nul
                       py -m dvc remote add --local %DVC_REMOTE_NAME% "%DVC_REMOTE_PATH%" --force
                       py -m dvc remote default %DVC_REMOTE_NAME% 1>nul 2>nul
 
                       rem --- DVC push ---
+                      echo [Publish] DVC push
                       py -m dvc push -r %DVC_REMOTE_NAME% -v
 
-                      rem --- Git push (PAT ile) ---
+                      rem --- Git push (PAT ile güvenli URL) ---
                       if "!SHOULD_PUSH!"=="1" (
-                        set "PUSH_URL=!REMOTE_URL!"
-                        echo !REMOTE_URL! | findstr /I /C:"https://" >nul
-                        if !errorlevel! EQU 0 (
-                          set "PUSH_URL=!REMOTE_URL:https://=https://%GIT_USERNAME%:%GIT_TOKEN%@!"
-                        )
+                        set "PUSH_URL=https://%GIT_USERNAME%:%GIT_TOKEN%@github.com/%GIT_REPO_PATH%.git"
+                        echo [Publish] git push to !PUSH_URL!
                         git push "!PUSH_URL!" HEAD:%GIT_TARGET_BRANCH%
                       ) else (
                         echo [Publish] Git push skipped; nothing to commit.
