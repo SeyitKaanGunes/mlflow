@@ -5,3 +5,5 @@ mlruns/
 temp_artifacts/
 pycache/
 *.log
+/artifacts
+/mlruns
