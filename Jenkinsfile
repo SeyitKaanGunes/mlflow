@@ -48,11 +48,15 @@ pipeline {
             }
         }
 
-        stage('Train Model') {
+        stage('Train & MLSecOps Gate') {
             steps {
                 bat '''
                   call .venv\\Scripts\\activate
-                  python main.py --samples 200 --experiment-name JenkinsDemo
+                  python main.py --samples 200 --experiment-name JenkinsDemo ^
+                    --mlsecops ^
+                    --mlsecops-enforce ^
+                    --mlsecops-epsilon 0.2 ^
+                    --mlsecops-trigger-phrase "[jenkins-red-team]"
                 '''
             }
         }

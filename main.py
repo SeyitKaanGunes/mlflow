@@ -16,6 +16,7 @@ Requirements:
 from __future__ import annotations
 
 import argparse
+from argparse import BooleanOptionalAction
 import json
 import uuid
 from pathlib import Path
@@ -45,6 +46,14 @@ from sklearn.metrics import (
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
+
+from mlsecops_security import (
+    assemble_security_report,
+    build_data_manifest,
+    evaluate_membership_inference_risk,
+    run_adversarial_stress_test,
+    scan_for_data_poisoning,
+)
 
 
 RANDOM_STATE_DEFAULT = 42
@@ -114,6 +123,32 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=1.0,
         help="Inverse regularisation strength passed to LogisticRegression (higher is weaker regularisation).",
+    )
+    parser.add_argument(
+        "--mlsecops",
+        dest="mlsecops_enabled",
+        action=BooleanOptionalAction,
+        default=True,
+        help="Run MLSecOps security checks (data provenance, adversarial noise, privacy risk).",
+    )
+    parser.add_argument(
+        "--mlsecops-enforce",
+        dest="mlsecops_enforce",
+        action=BooleanOptionalAction,
+        default=False,
+        help="Fail the run if MLSecOps aggregate risk is HIGH.",
+    )
+    parser.add_argument(
+        "--mlsecops-epsilon",
+        type=float,
+        default=0.15,
+        help="Magnitude of numeric perturbation used in adversarial stress tests.",
+    )
+    parser.add_argument(
+        "--mlsecops-trigger-phrase",
+        type=str,
+        default="[mlsecops-trigger]",
+        help="Phrase appended to text inputs while simulating a backdoor trigger.",
     )
     return parser.parse_args()
 
@@ -377,6 +412,7 @@ def log_run_to_mlflow(
     model_summary: Dict,
     evaluation_outputs: Dict,
     artifact_root: Path,
+    security_outputs: Dict | None = None,
 ) -> None:
     if args.tracking_uri:
         mlflow.set_tracking_uri(args.tracking_uri)
@@ -434,6 +470,22 @@ def log_run_to_mlflow(
         dump(model, model_path)
         mlflow.log_artifact(str(model_path))
 
+        if security_outputs:
+            risk_report = security_outputs.get("report", {})
+            mlflow.log_param(
+                "mlsecops.aggregate_risk_level",
+                risk_report.get("aggregate_risk_level", "unknown"),
+            )
+            for idx, risk in enumerate(risk_report.get("risks", []), start=1):
+                mlflow.log_param(f"mlsecops.risk_{idx}.{risk['name']}", risk["level"])
+
+            for metric_key, metric_value in security_outputs.get("metrics", {}).items():
+                mlflow.log_metric(metric_key, metric_value)
+
+            report_path = security_outputs.get("path")
+            if report_path:
+                mlflow.log_artifact(str(report_path))
+
 
 def main() -> None:
     args = parse_args()
@@ -454,6 +506,65 @@ def main() -> None:
     evaluation_outputs = compute_evaluation_outputs(model, test_df)
 
     artifact_root = Path(args.artifact_dir)
+    security_bundle: Dict | None = None
+    if args.mlsecops_enabled:
+        manifest = build_data_manifest(
+            train_df,
+            test_df,
+            numeric_columns=NUMERIC_FEATURES,
+            categorical_columns=CATEGORICAL_FEATURES,
+        )
+        poisoning_risk = scan_for_data_poisoning(
+            train_df, label_column=LABEL_COLUMN, numeric_columns=NUMERIC_FEATURES
+        )
+        privacy_risk = evaluate_membership_inference_risk(
+            model, train_df, test_df, LABEL_COLUMN
+        )
+        adversarial_risk = run_adversarial_stress_test(
+            model,
+            test_df,
+            label_column=LABEL_COLUMN,
+            numeric_columns=NUMERIC_FEATURES,
+            text_column=TEXT_FEATURE,
+            baseline_accuracy=evaluation_outputs["metrics"]["accuracy"],
+            epsilon=args.mlsecops_epsilon,
+            trigger_phrase=args.mlsecops_trigger_phrase,
+            rng=ensure_reproducibility(args.random_state + 7),
+        )
+        mlsecops_dir = artifact_root / "mlsecops"
+        report_bundle = assemble_security_report(
+            manifest,
+            [poisoning_risk, privacy_risk, adversarial_risk],
+            mlsecops_dir,
+        )
+        security_bundle = {
+            "report": report_bundle["report"],
+            "path": report_bundle["path"],
+            "metrics": {
+                "mlsecops.adversarial_accuracy": adversarial_risk.details[
+                    "adversarial_accuracy"
+                ],
+                "mlsecops.adversarial_degradation": adversarial_risk.details[
+                    "accuracy_degradation"
+                ],
+                "mlsecops.privacy_confidence_gap": privacy_risk.details[
+                    "confidence_gap"
+                ],
+                "mlsecops.poisoning_issue_count": len(
+                    poisoning_risk.details.get("issues", [])
+                ),
+            },
+        }
+
+        if (
+            args.mlsecops_enforce
+            and report_bundle["report"]["aggregate_risk_level"] == "high"
+        ):
+            raise RuntimeError(
+                "MLSecOps enforcement is enabled and the aggregate risk is HIGH. "
+                "Inspect the mlsecops_security_report.json artifact for remediation steps."
+            )
+
     log_run_to_mlflow(
         args,
         train_df,
@@ -462,9 +573,16 @@ def main() -> None:
         model_summary,
         evaluation_outputs,
         artifact_root=artifact_root,
+        security_outputs=security_bundle,
     )
 
     print("Evaluation metrics:", json.dumps(evaluation_outputs["metrics"], indent=2))
+    if security_bundle:
+        print(
+            "MLSecOps aggregate risk:",
+            security_bundle["report"]["aggregate_risk_level"],
+        )
+        print("Security report:", security_bundle["path"].resolve())
     print(f"Artifacts stored under: {artifact_root.resolve()}")
 
 
