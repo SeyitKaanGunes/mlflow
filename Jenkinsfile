@@ -97,7 +97,7 @@ pipeline {
         stage('DVC Snapshot') {
             steps {
                 withCredentials([
-                    usernamePassword(credentialsId: 'github-push', usernameVariable: 'GIT_USERNAME', passwordVariable: 'GIT_TOKEN')
+                    string(credentialsId: 'github-push', variable: 'GIT_TOKEN')
                 ]) {
                     bat '''
                       call .venv\\Scripts\\activate
@@ -154,9 +154,10 @@ pipeline {
                         echo [DVC] git push to !PUSH_REMOTE! (http.extraheader, bearer token)
 
                         git -c credential.helper= ^
-                            -c http.extraheader="Authorization: Bearer %GIT_TOKEN%" ^
+                            -c http.extraheader="AUTHORIZATION: bearer %GIT_TOKEN%" ^
                             push "!PUSH_REMOTE!" HEAD:%GIT_TARGET_BRANCH% || (
                                 echo [DVC] Git push failed, but build will continue.
+                                exit /b 0
                             )
                       ) else (
                         echo [DVC] Git push skipped; nothing to commit.
