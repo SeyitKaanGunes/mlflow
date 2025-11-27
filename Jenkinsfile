@@ -110,7 +110,7 @@ pipeline {
                       for %%D in (artifacts mlruns) do (
                         if exist "%%D" (
                           echo [DVC] dvc add %%D
-                          py -m dvc add "%%D"
+                          python -m dvc add "%%D"
                         ) else (
                           echo [DVC] Skipping %%D because it does not exist.
                         )
@@ -139,10 +139,10 @@ pipeline {
                           exit /b 1
                         )
                       )
-                      py -m dvc remote add --local %DVC_REMOTE_NAME% "%DVC_REMOTE_PATH%" --force
+                      python -m dvc remote add --local %DVC_REMOTE_NAME% "%DVC_REMOTE_PATH%" --force
 
                       echo [DVC] dvc push
-                      py -m dvc push -r %DVC_REMOTE_NAME% -v
+                      python -m dvc push -r %DVC_REMOTE_NAME% -v
 
                       if "!SHOULD_PUSH!"=="1" (
                         for /f "usebackq delims=" %%A in (`powershell -NoProfile -Command "$pair = '{0}:{1}' -f $env:GIT_USERNAME, $env:GIT_TOKEN; $bytes = [System.Text.Encoding]::UTF8.GetBytes($pair); Write-Output ([System.Convert]::ToBase64String($bytes))"`) do set "BASIC_AUTH=%%A"
