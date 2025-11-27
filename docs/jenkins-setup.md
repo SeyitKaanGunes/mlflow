@@ -29,10 +29,16 @@ This repository ships with a declarative Jenkins pipeline (`Jenkinsfile`) that a
 - The pipeline forces `MLFLOW_TRACKING_URI=file:${WORKSPACE}/mlruns`, so each build writes to a local MLflow file store kept in the job workspace.
 - Jenkins archives both `artifacts/` and `mlruns/` directories, making them downloadable from the build page (**Build -> Artifacts**). You can import the MLflow run directory into a local MLflow UI if desired.
 
+## LLM summary & MLSecOps
+
+- `main.py` now produces a tiny-LLM narrative of evaluation metrics (defaults to the Hugging Face model `sshleifer/tiny-gpt2`). Override it by setting the `LLM_MODEL_NAME` environment variable in Jenkins or passing `--llm-model-name` to the script.
+- A new **MLSecOps (Garak)** stage runs `run_mlsecops.py`, which wraps NVIDIA Garak against the same lightweight model with a small probe set (`promptinject.HijackNevermind` and `dan.Dan_8_0`) to keep CI time low. Reports are copied into `artifacts/mlsecops/` and archived alongside other artefacts.
+- The Garak wrapper forces UTF-8 output and runs from the installed `site-packages` path so plugin discovery works reliably on Windows agents.
+
 ## Customisation Tips
 
-- **Experiment parameters** — edit the `python main.py ...` line inside the `Train Model` stage to tweak sample count, runtime, or MLflow experiment names used during CI runs.
+- **Experiment parameters** - edit the `python main.py ...` line inside the `Train Model` stage to tweak sample count, runtime, or MLflow experiment names used during CI runs.
 - **GPU / larger instances** - label the Jenkins agent that has the required hardware and update the job to target that label.
-- **Parallel agents** — wrap the stages in `when { branch "main" }` or similar if you only want the ML pipeline on selected branches, following the conditional examples in the DataCamp tutorial.
+- **Parallel agents** - wrap the stages in `when { branch "main" }` or similar if you only want the ML pipeline on selected branches, following the conditional examples in the DataCamp tutorial.
 
 After the job succeeds you can extend the pipeline with additional stages (testing, model evaluation, deployment) reusing the skeleton provided in the tutorial and this Jenkinsfile.

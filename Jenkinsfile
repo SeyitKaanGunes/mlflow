@@ -10,6 +10,8 @@ pipeline {
         // MLflow yerel klasörü (workspace altı)
         MLFLOW_TRACKING_URI = "file:${WORKSPACE}/mlruns"
         PYTHONUNBUFFERED    = '1'
+        PYTHONIOENCODING    = 'utf-8'
+        LLM_MODEL_NAME      = 'sshleifer/tiny-gpt2'
 
         // Git & DVC ayarları
         GIT_TARGET_BRANCH   = 'main'
@@ -52,7 +54,7 @@ pipeline {
             steps {
                 bat '''
                   call .venv\\Scripts\\activate
-                  python -m py_compile main.py mlsecops_security.py
+                  python -m py_compile main.py
                 '''
             }
         }
@@ -61,7 +63,8 @@ pipeline {
             steps {
                 bat '''
                   call .venv\\Scripts\\activate
-                  python main.py --samples 300 --experiment-name JenkinsTrain
+                  python main.py --samples 300 --experiment-name JenkinsTrain ^
+                    --llm-model-name %LLM_MODEL_NAME%
                 '''
             }
         }
@@ -72,23 +75,19 @@ pipeline {
                   call .venv\\Scripts\\activate
                   python main.py --samples 80 --experiment-name JenkinsSmoke ^
                     --artifact-dir temp_artifacts\\jenkins_smoke ^
-                    --mlsecops ^
-                    --mlsecops-epsilon 0.1 ^
-                    --mlsecops-trigger-phrase "[smoke]"
+                    --llm-model-name %LLM_MODEL_NAME%
                 '''
             }
         }
 
-        stage('MLSecOps Audit') {
+        stage('MLSecOps (Garak)') {
             steps {
                 bat '''
                   call .venv\\Scripts\\activate
-                  python main.py --samples 200 --experiment-name JenkinsAudit ^
-                    --artifact-dir temp_artifacts\\mlsecops_audit ^
-                    --mlsecops ^
-                    --mlsecops-enforce ^
-                    --mlsecops-epsilon 0.2 ^
-                    --mlsecops-trigger-phrase "[jenkins-red-team]"
+                  python run_mlsecops.py --model-name %LLM_MODEL_NAME% ^
+                    --probes promptinject.HijackNevermind,dan.Dan_8_0 ^
+                    --generations 2 ^
+                    --output-dir artifacts\\mlsecops
                 '''
             }
         }
