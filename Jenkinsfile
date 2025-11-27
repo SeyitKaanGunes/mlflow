@@ -146,7 +146,7 @@ pipeline {
                       python -m dvc push -r %DVC_REMOTE_NAME% -v
 
                       if "!SHOULD_PUSH!"=="1" (
-                        for /f "usebackq delims=" %%A in (`"%POWERSHELL_EXE%" -NoProfile -Command "$pair = '{0}:{1}' -f $env:GIT_USERNAME, $env:GIT_TOKEN; $bytes = [System.Text.Encoding]::UTF8.GetBytes($pair); Write-Output ([System.Convert]::ToBase64String($bytes))"`) do set "BASIC_AUTH=%%A"
+                        for /f "delims=" %%A in ('"%POWERSHELL_EXE%" -NoProfile -Command "$pair = ^"$env:GIT_USERNAME:$env:GIT_TOKEN^"; [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($pair))"') do set "BASIC_AUTH=%%A"
                         if not defined BASIC_AUTH (
                           echo [DVC] Failed to prepare Git credentials.
                           exit /b 1
