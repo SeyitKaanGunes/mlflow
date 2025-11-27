@@ -97,7 +97,7 @@ pipeline {
         stage('DVC Snapshot') {
             steps {
                 withCredentials([
-                    string(credentialsId: 'github-push', variable: 'GIT_TOKEN')
+                    usernamePassword(credentialsId: 'github-push', usernameVariable: 'GIT_USERNAME', passwordVariable: 'GIT_TOKEN')
                 ]) {
                     bat '''
                       call .venv\\Scripts\\activate
