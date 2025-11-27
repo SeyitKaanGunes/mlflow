@@ -12,9 +12,8 @@ pipeline {
         PYTHONUNBUFFERED    = '1'
         PYTHONIOENCODING    = 'utf-8'
         LLM_MODEL_NAME      = 'sshleifer/tiny-gpt2'
-        PATH                = 'C:\\Program Files\\Git\\bin;C:\\Program Files\\Git\\cmd;%PATH%'
-        GIT_PYTHON_GIT_EXECUTABLE = 'C:\\Program Files\\Git\\bin\\git.exe'
-        POWERSHELL_EXE      = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'
+        PATH                = 'C:\\Program Files\\Git\\cmd;%PATH%'
+        GIT_PYTHON_GIT_EXECUTABLE = 'C:\\Program Files\\Git\\cmd\\git.exe'
 
         // Git & DVC ayarları
         GIT_TARGET_BRANCH   = 'main'
@@ -105,6 +104,11 @@ pipeline {
                       setlocal EnableDelayedExpansion
 
                       echo [DVC] Git user set
+                      set "GIT_CONFIG_GLOBAL=nul"
+                      set "GIT_CONFIG_SYSTEM=nul"
+                      set "GIT_TERMINAL_PROMPT=0"
+                      set "GIT_ASKPASS=echo"
+                      set "GCM_INTERACTIVE=Never"
                       git config user.email "jenkins@local"
                       git config user.name  "Jenkins CI"
 
@@ -148,7 +152,7 @@ pipeline {
                       if "!SHOULD_PUSH!"=="1" (
                         set "BASIC_AUTH="
                         set "BASIC_AUTH_FILE=%WORKSPACE%\\basic_auth.txt"
-                        "%POWERSHELL_EXE%" -NoProfile -Command "$pair=\"$env:GIT_USERNAME:$env:GIT_TOKEN\"; [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($pair))" > "%BASIC_AUTH_FILE%"
+                        python -c "import os,base64,sys;pair='{}:{}'.format(os.environ.get('GIT_USERNAME',''), os.environ.get('GIT_TOKEN',''));sys.stdout.write(base64.b64encode(pair.encode()).decode())" > "%BASIC_AUTH_FILE%"
                         if exist "%BASIC_AUTH_FILE%" (
                           set /p BASIC_AUTH=<"%BASIC_AUTH_FILE%"
                           del /f /q "%BASIC_AUTH_FILE%"
@@ -159,7 +163,9 @@ pipeline {
                         )
                         set "PUSH_REMOTE=https://github.com/%GIT_REPO_PATH%.git"
                         echo [DVC] git push to !PUSH_REMOTE! (http.extraheader)
-                        git -c http.extraheader="Authorization: Basic !BASIC_AUTH!" push "!PUSH_REMOTE!" HEAD:%GIT_TARGET_BRANCH%
+                        git -c credential.helper= ^
+                            -c http.extraheader="Authorization: Basic !BASIC_AUTH!" ^
+                            push "!PUSH_REMOTE!" HEAD:%GIT_TARGET_BRANCH%
                       ) else (
                         echo [DVC] Git push skipped; nothing to commit.
                       )
