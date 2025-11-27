@@ -12,6 +12,8 @@ pipeline {
         PYTHONUNBUFFERED    = '1'
         PYTHONIOENCODING    = 'utf-8'
         LLM_MODEL_NAME      = 'sshleifer/tiny-gpt2'
+        PATH                = 'C:\\Program Files\\Git\\cmd;C:\\Program Files\\Git\\bin;%PATH%'
+        GIT_PYTHON_GIT_EXECUTABLE = 'C:\\Program Files\\Git\\cmd\\git.exe'
 
         // Git & DVC ayarları
         GIT_TARGET_BRANCH   = 'main'
