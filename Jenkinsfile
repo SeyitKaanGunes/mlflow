@@ -12,8 +12,8 @@ pipeline {
         PYTHONUNBUFFERED    = '1'
         PYTHONIOENCODING    = 'utf-8'
         LLM_MODEL_NAME      = 'sshleifer/tiny-gpt2'
-        PATH                = 'C:\\Program Files\\Git\\cmd;C:\\Program Files\\Git\\bin;%PATH%'
-        GIT_PYTHON_GIT_EXECUTABLE = 'C:\\Program Files\\Git\\cmd\\git.exe'
+        PATH                = 'C:\\Program Files\\Git\\bin;C:\\Program Files\\Git\\cmd;%PATH%'
+        GIT_PYTHON_GIT_EXECUTABLE = 'C:\\Program Files\\Git\\bin\\git.exe'
         POWERSHELL_EXE      = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'
 
         // Git & DVC ayarları
