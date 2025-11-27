@@ -14,6 +14,7 @@ pipeline {
         LLM_MODEL_NAME      = 'sshleifer/tiny-gpt2'
         PATH                = 'C:\\Program Files\\Git\\cmd;C:\\Program Files\\Git\\bin;%PATH%'
         GIT_PYTHON_GIT_EXECUTABLE = 'C:\\Program Files\\Git\\cmd\\git.exe'
+        POWERSHELL_EXE      = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'
 
         // Git & DVC ayarları
         GIT_TARGET_BRANCH   = 'main'
@@ -145,7 +146,7 @@ pipeline {
                       python -m dvc push -r %DVC_REMOTE_NAME% -v
 
                       if "!SHOULD_PUSH!"=="1" (
-                        for /f "usebackq delims=" %%A in (`powershell -NoProfile -Command "$pair = '{0}:{1}' -f $env:GIT_USERNAME, $env:GIT_TOKEN; $bytes = [System.Text.Encoding]::UTF8.GetBytes($pair); Write-Output ([System.Convert]::ToBase64String($bytes))"`) do set "BASIC_AUTH=%%A"
+                        for /f "usebackq delims=" %%A in (`"%POWERSHELL_EXE%" -NoProfile -Command "$pair = '{0}:{1}' -f $env:GIT_USERNAME, $env:GIT_TOKEN; $bytes = [System.Text.Encoding]::UTF8.GetBytes($pair); Write-Output ([System.Convert]::ToBase64String($bytes))"`) do set "BASIC_AUTH=%%A"
                         if not defined BASIC_AUTH (
                           echo [DVC] Failed to prepare Git credentials.
                           exit /b 1
