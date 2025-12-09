@@ -7,3 +7,7 @@ dvc>=3.0.0
 transformers>=4.57.0
 torch>=2.2.0
 garak==0.9.0
+fairlearn>=0.13.0
+cyclonedx-bom>=7.2.0
+giskard>=2.15.0; python_version < "3.13"
+credoai-lens==1.1.7; python_version < "3.12"

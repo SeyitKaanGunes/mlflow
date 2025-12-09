@@ -7,7 +7,7 @@ pipeline {
     }
 
     environment {
-        // MLflow yerel klasörü (workspace altı)
+        // MLflow local runs live in the workspace
         MLFLOW_TRACKING_URI = "file:${WORKSPACE}/mlruns"
         PYTHONUNBUFFERED    = '1'
         PYTHONIOENCODING    = 'utf-8'
@@ -15,18 +15,31 @@ pipeline {
         PATH                = 'C:\\Program Files\\Git\\cmd;%PATH%'
         GIT_PYTHON_GIT_EXECUTABLE = 'C:\\Program Files\\Git\\cmd\\git.exe'
 
-        // Git & DVC ayarları
+        // Git & DVC settings
         GIT_TARGET_BRANCH   = 'main'
 
         // Local DVC remote
         DVC_REMOTE_NAME     = 'local-storage'
         DVC_REMOTE_PATH     = 'C:\\dvc-storage'
 
-        // GitHub repo yolun: owner/repo
+        // GitHub repo path: owner/repo
         GIT_REPO_PATH       = 'SeyitKaanGunes/mlflow'
     }
 
     stages {
+        stage('Preflight') {
+            steps {
+                bat '''
+                  echo [Preflight] Workspace: %WORKSPACE%
+                  echo [Preflight] Node: %COMPUTERNAME%
+                  ver
+                  where git
+                  where py
+                  git --version
+                '''
+            }
+        }
+
         stage('Checkout') {
             steps {
                 checkout scm
@@ -37,8 +50,18 @@ pipeline {
             steps {
                 bat '''
                   if not exist ".venv\\Scripts\\python.exe" (
+                    echo [Python] Creating virtualenv
                     py -3 -m venv .venv
+                  ) else (
+                    echo [Python] Reusing existing virtualenv
                   )
+                '''
+            }
+        }
+
+        stage('Install Dependencies') {
+            steps {
+                bat '''
                   call .venv\\Scripts\\activate
                   if not exist "%WORKSPACE%\\.pip-cache" (
                     mkdir "%WORKSPACE%\\.pip-cache"
@@ -47,7 +70,27 @@ pipeline {
                   python -m pip install --upgrade pip
                   if exist requirements.txt (
                     python -m pip install -r requirements.txt
+                  ) else (
+                    echo [Deps] requirements.txt not found; skipping.
                   )
+                  python -m pip check
+                '''
+            }
+        }
+
+        stage('Environment Snapshot') {
+            steps {
+                bat '''
+                  call .venv\\Scripts\\activate
+                  if not exist artifacts (
+                    mkdir artifacts
+                  )
+                  echo [Env] Python and platform info
+                  python -c "import platform, sys; print('Python:', sys.version); print('Platform:', platform.platform())"
+                  echo [Env] Git status (short)
+                  git status -sb || echo [Env] Git status unavailable
+                  echo [Env] pip freeze -> artifacts\\pip-freeze.txt
+                  python -m pip freeze > artifacts\\pip-freeze.txt
                 '''
             }
         }
@@ -56,7 +99,29 @@ pipeline {
             steps {
                 bat '''
                   call .venv\\Scripts\\activate
-                  python -m py_compile main.py
+                  python -m compileall main.py assurance_suite.py run_mlsecops.py
+                '''
+            }
+        }
+
+        stage('Data Pull (DVC)') {
+            steps {
+                bat '''
+                  call .venv\\Scripts\\activate
+                  echo [DVC] Configure remote %DVC_REMOTE_NAME% -> %DVC_REMOTE_PATH%
+                  if not exist "%DVC_REMOTE_PATH%" (
+                    mkdir "%DVC_REMOTE_PATH%" || (
+                      echo [DVC] Unable to create DVC remote path %DVC_REMOTE_PATH%.
+                      exit /b 0
+                    )
+                  )
+                  python -m dvc remote add --local %DVC_REMOTE_NAME% "%DVC_REMOTE_PATH%" --force
+                  echo [DVC] dvc pull -r %DVC_REMOTE_NAME%
+                  python -m dvc pull -r %DVC_REMOTE_NAME% -v
+                  if errorlevel 1 (
+                    echo [DVC] Pull failed or nothing to pull; continuing.
+                    exit /b 0
+                  )
                 '''
             }
         }
@@ -90,6 +155,50 @@ pipeline {
                     --probes promptinject.HijackNevermind,dan.Dan_8_0 ^
                     --generations 2 ^
                     --output-dir artifacts\\mlsecops
+                '''
+            }
+        }
+
+        stage('Fairness (Fairlearn)') {
+            steps {
+                bat '''
+                  call .venv\\Scripts\\activate
+                  python assurance_suite.py --samples 200 --sbom-format json ^
+                    --artifact-dir artifacts\\assurance ^
+                    --skip-giskard --skip-credo --skip-sbom
+                '''
+            }
+        }
+
+        stage('Security (Giskard)') {
+            steps {
+                bat '''
+                  call .venv\\Scripts\\activate
+                  python assurance_suite.py --samples 200 --sbom-format json ^
+                    --artifact-dir artifacts\\assurance ^
+                    --skip-fairlearn --skip-credo --skip-sbom
+                '''
+            }
+        }
+
+        stage('SBOM (CycloneDX)') {
+            steps {
+                bat '''
+                  call .venv\\Scripts\\activate
+                  python assurance_suite.py --samples 50 --sbom-format json ^
+                    --artifact-dir artifacts\\assurance ^
+                    --skip-fairlearn --skip-giskard --skip-credo
+                '''
+            }
+        }
+
+        stage('Governance Card') {
+            steps {
+                bat '''
+                  call .venv\\Scripts\\activate
+                  python assurance_suite.py --samples 50 --sbom-format json ^
+                    --artifact-dir artifacts\\assurance ^
+                    --skip-fairlearn --skip-giskard --skip-sbom
                 '''
             }
         }

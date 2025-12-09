@@ -125,3 +125,10 @@ GitHub: https://github.com/SeyitKaanGunes
 Bu repo, “minir MLflow altyapısı isteyenler imal ama etkili” biçin hazırlanmıştır.
 Daha gelişmiş bir pipeline (DVC, Docker, model registry, CI/CD) eklemek istersen yapı buna uygun şekilde genişletilebilir.
 
+## 🔐 Adalet, Güvenlik, Governance ve SBOM
+
+- Fairlearn: Grup bazlı adalet ve parite farkları için `python assurance_suite.py --skip-giskard --skip-credo --skip-sbom` komutunu çalıştır; çıktılar `artifacts/assurance/fairlearn/` altında.
+- Giskard (güvenlik/sağlamlık): Python 3.10/3.11 ortamında `pip install giskard` sonrası `python assurance_suite.py --skip-fairlearn --skip-credo --skip-sbom` komutuyla çıktılar `artifacts/assurance/giskard/` altında oluşur. 3.13 için GISKARD_SKIPPED.txt notunu kontrol et.
+- Credo AI (yönetim/uyum): `python assurance_suite.py` governance taslağını `artifacts/assurance/governance/` klasörüne yazar. Tam Lens deneyimi için Python 3.10/3.11 + `pip install credoai-lens` kullan.
+- CycloneDX SBOM: `python assurance_suite.py --skip-fairlearn --skip-giskard --skip-credo` veya doğrudan `cyclonedx-bom --format json -o artifacts/assurance/sbom/sbom.json` komutu ile tedarik zinciri listesi yarat.
+- Hepsi bir arada: `python assurance_suite.py` komutu adalet, güvenlik (kuruluysa), governance taslağı ve SBOM çıktısı üretir; özet `artifacts/assurance/assurance_summary.json` dosyasında.
