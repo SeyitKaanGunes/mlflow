@@ -177,6 +177,11 @@ def run_fairlearn_checks(
         by_group_path = artifact_dir / f"{feature}_fairness_groups.csv"
         by_group_df.to_csv(by_group_path, index=False)
 
+        tpr_series = metric_frame.by_group["true_positive_rate"]
+        equal_opportunity_difference = float(
+            tpr_series.max() - tpr_series.min()
+        ) if not tpr_series.empty else 0.0
+
         fairness_by_feature[feature] = {
             "overall": metric_frame.overall.to_dict(),
             "by_group": by_group_df.to_dict(orient="records"),
@@ -191,6 +196,7 @@ def run_fairlearn_checks(
                         y_true_bool, y_pred_bool, sensitive_features=sensitive
                     )
                 ),
+                "equal_opportunity_difference": equal_opportunity_difference,
             },
             "by_group_csv": str(by_group_path),
         }
